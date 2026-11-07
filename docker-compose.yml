@@ -1,0 +1,55 @@
+name: pycods
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: pycods_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pycods_user
+      POSTGRES_PASSWORD: pycods_password
+      POSTGRES_DB: pycods_db
+    # Sin "ports": la BD solo es accesible dentro de la red de Docker,
+    # así no choca con un PostgreSQL local en el 5432.
+    # Si necesitas entrar desde el host, descomenta (puerto alterno 5433):
+    # ports:
+    #   - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pycods_user -d pycods_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: pycods_backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"          # host:contenedor -> FastAPI en 8001
+    environment:
+      DATABASE_URL: postgresql://pycods_user:pycods_password@db:5432/pycods_db
+      SECRET_KEY: supersecretkey_pycods_tea
+      CORS_ORIGINS: "http://localhost:4042,http://127.0.0.1:4042"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    container_name: pycods_frontend
+    restart: unless-stopped
+    ports:
+      - "4042:4042"          # host:contenedor -> Nginx en 4042
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
